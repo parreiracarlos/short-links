@@ -1,9 +1,9 @@
 // Vercel Edge Function: proxy para o teu Google Apps Script
-// Env vars (Vercel → Project → Settings → Environment Variables):
-// - GAS_BASE     (obrigatório) → URL do Apps Script até /exec
-// - ADMIN_PASS   (opcional)    → password que o GAS espera no painel
-// - ADMIN_USER   (opcional)    → user do Basic Auth do /admin
-// - ADMIN_SECRET (opcional)    → senha do Basic Auth do /admin
+// Env vars necessárias (Project → Settings → Environment Variables):
+// - GAS_BASE     → URL do Apps Script até /exec (ex.: https://script.google.com/macros/s/…/exec)
+// - ADMIN_PASS   → mesma password que o GAS exige no painel
+// - ADMIN_USER   → user do Basic Auth do /admin
+// - ADMIN_SECRET → senha do Basic Auth do /admin
 
 export const config = { runtime: 'edge' };
 
@@ -11,7 +11,7 @@ export const config = { runtime: 'edge' };
 function basicAuthOk(req) {
   const user = process.env.ADMIN_USER || '';
   const secret = process.env.ADMIN_SECRET || '';
-  if (!user || !secret) return true; // sem credenciais → não exige login
+  if (!user || !secret) return true; // se não definires, não pede auth
 
   const h = req.headers.get('authorization') || '';
   if (!h.startsWith('Basic ')) return false;
@@ -28,30 +28,25 @@ function basicAuthOk(req) {
   }
 }
 
-// ---------- Landing HTML ----------
+// ---------- Landing muito simples ----------
 function landingHtml(gas) {
-  return [
-    '<!doctype html><meta charset="utf-8"><title>Short links</title>',
-    '<style>',
-    ':root{--bg:#f5f7fb;--card:#fff;--line:#e5e7eb;--text:#111827;--muted:#6b7280;--btn:#374151;--btnH:#111827}',
-    '*{box-sizing:border-box}body{font-family:system-ui,Segoe UI,Roboto;background:var(--bg);color:var(--text);margin:0;padding:40px}',
-    '.wrap{max-width:860px;margin:0 auto}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px;box-shadow:0 10px 35px rgba(0,0,0,.06)}',
-    'h1{margin:0 0 8px}p{color:var(--muted)}code{background:#eef2f7;padding:2px 6px;border-radius:8px}',
-    '.actions{display:flex;gap:10px;margin-top:16px}',
-    'a.btn{background:var(--btn);color:#fff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:700}',
-    'a.btn:hover{background:var(--btnH)}',
-    '</style>',
-    '<div class="wrap"><div class="card">',
-    '<h1>Short links</h1>',
-    '<p>Formato: <code>https://seu-dominio/&lt;slug&gt;</code> ou <code>/s/&lt;slug&gt;</code> | QR: <code>/qr/&lt;slug&gt;</code> | Painel: <code>/admin</code></p>',
-    '<div class="actions"><a class="btn" href="', gas, '" target="_blank" rel="noreferrer noopener">Abrir GAS</a></div>',
-    '</div></div>'
-  ].join('');
+  return (
+    '<!doctype html><meta charset="utf-8"><title>Short links</title>' +
+    '<div style="font-family:system-ui,Segoe UI,Roboto;padding:24px">' +
+      '<h1 style="margin:0 0 8px">Short links</h1>' +
+      '<p>Health OK. <a href="' + gas + '" target="_blank" rel="noreferrer noopener">Abrir GAS</a></p>' +
+      '<ul>' +
+        '<li>Curto: <code>/&lt;slug&gt;</code> ou <code>/s/&lt;slug&gt;</code></li>' +
+        '<li>QR: <code>/qr/&lt;slug&gt;</code></li>' +
+        '<li>Painel: <code>/admin</code></li>' +
+      '</ul>' +
+    '</div>'
+  );
 }
 
 export default async function handler(req) {
   const url = new URL(req.url);
-  const path = url.pathname.replace(/^\/+/, ''); // sem barra inicial
+  const path = url.pathname.replace(/^\/+/, '');
   const GAS = (process.env.GAS_BASE || '').replace(/\/+$/, '');
 
   if (!GAS) return new Response('GAS_BASE em falta', { status: 500 });
@@ -64,7 +59,7 @@ export default async function handler(req) {
     });
   }
 
-  // /admin → Basic Auth + iframe (não expõe a pass na barra)
+  // /admin → Basic Auth + iframe (com pass do GAS no servidor)
   if (path === 'admin') {
     if (!basicAuthOk(req)) {
       return new Response('Autenticação requerida', {
@@ -75,14 +70,12 @@ export default async function handler(req) {
     const PASS = process.env.ADMIN_PASS || '';
     if (!PASS) return new Response('ADMIN_PASS não configurado', { status: 403 });
 
-    const html = [
-      '<!doctype html><meta charset="utf-8"><title>Admin</title>',
-      '<style>html,body{height:100%;margin:0}body{font-family:system-ui,Segoe UI,Roboto;background:#f5f7fb}',
-      '.wrap{height:100%;display:flex;align-items:stretch;justify-content:center}iframe{flex:1;border:0;width:100%;height:100%}</style>',
-      '<div class="wrap">',
-      '<iframe src="', GAS, '?admin=1&pass=', encodeURIComponent(PASS), '" allow="clipboard-write *"></iframe>',
-      '</div>'
-    ].join('');
+    const html =
+      '<!doctype html><meta charset="utf-8"><title>Admin</title>' +
+      '<div style="height:100vh;margin:0;padding:0">' +
+      '<iframe src="' + GAS + '?admin=1&pass=' + encodeURIComponent(PASS) + '" ' +
+      'style="border:0;width:100%;height:100%" allow="clipboard-write *"></iframe>' +
+      '</div>';
 
     return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
   }
@@ -95,7 +88,7 @@ export default async function handler(req) {
     return passthrough(r);
   }
 
-  // /s/<slug> ou /<slug> → resolve no GAS e faz 302 (sem "frame")
+  // /s/<slug> ou /<slug> → resolve no GAS e faz 302 (sem “frame”)
   if (path) {
     const slug = path.startsWith('s/') ? decodeURIComponent(path.slice(2)) : decodeURIComponent(path);
     if (slug && slug !== 'favicon.ico') {
@@ -106,11 +99,11 @@ export default async function handler(req) {
       if (lookup.ok) {
         const targetTxt = (await lookup.text()).trim();
         if (targetTxt && targetTxt !== 'NOT_FOUND') {
-          return Response.redirect(targetTxt, 302); // 302 limpo
+          return Response.redirect(targetTxt, 302);
         }
       }
 
-      // Fallback: entrega a página HTML do GAS (raramente necessário)
+      // Fallback: devolve a página HTML do GAS (com meta refresh)
       const fallbackUrl = GAS + '?s=' + encodeURIComponent(slug);
       const r = await fetch(fallbackUrl, { headers: forwardHeaders(req) });
       const resp = passthrough(r);
