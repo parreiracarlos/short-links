@@ -9,16 +9,16 @@ export const config = { runtime: 'edge' };
 
 // ---------- Basic Auth ----------
 function basicAuthOk(req) {
-  const user = process.env.ADMIN_USER || "";
-  const secret = process.env.ADMIN_SECRET || "";
+  const user = process.env.ADMIN_USER || '';
+  const secret = process.env.ADMIN_SECRET || '';
   if (!user || !secret) return true; // sem credenciais → não exige login
 
-  const h = req.headers.get("authorization") || "";
-  if (!h.startsWith("Basic ")) return false;
+  const h = req.headers.get('authorization') || '';
+  if (!h.startsWith('Basic ')) return false;
 
   try {
     const decoded = atob(h.slice(6));
-    const idx = decoded.indexOf(":");
+    const idx = decoded.indexOf(':');
     if (idx === -1) return false;
     const u = decoded.slice(0, idx);
     const p = decoded.slice(idx + 1);
@@ -28,106 +28,106 @@ function basicAuthOk(req) {
   }
 }
 
-// ---------- Landing HTML (sem template strings) ----------
+// ---------- Landing HTML ----------
 function landingHtml(gas) {
   return [
-    "<!doctype html><meta charset=\"utf-8\"><title>Short links</title>",
-    "<style>",
-    ":root{--bg:#f5f7fb;--card:#fff;--line:#e5e7eb;--text:#111827;--muted:#6b7280;--btn:#374151;--btnH:#111827}",
-    "*{box-sizing:border-box}body{font-family:system-ui,Segoe UI,Roboto;background:var(--bg);color:var(--text);margin:0;padding:40px}",
-    ".wrap{max-width:860px;margin:0 auto}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px;box-shadow:0 10px 35px rgba(0,0,0,.06)}",
-    "h1{margin:0 0 8px}p{color:var(--muted)}code{background:#eef2f7;padding:2px 6px;border-radius:8px}",
-    ".actions{display:flex;gap:10px;margin-top:16px}",
-    "a.btn{background:var(--btn);color:#fff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:700}",
-    "a.btn:hover{background:var(--btnH)}",
-    "</style>",
-    "<div class=\"wrap\"><div class=\"card\">",
-    "<h1>Short links</h1>",
-    "<p>Formato: <code>https://seu-dominio/&lt;slug&gt;</code> ou <code>/s/&lt;slug&gt;</code> | QR: <code>/qr/&lt;slug&gt;</code> | Painel: <code>/admin</code></p>",
-    "<div class=\"actions\"><a class=\"btn\" href=\"", gas, "\" target=\"_blank\" rel=\"noreferrer noopener\">Abrir GAS</a></div>",
-    "</div></div>"
-  ].join("");
+    '<!doctype html><meta charset="utf-8"><title>Short links</title>',
+    '<style>',
+    ':root{--bg:#f5f7fb;--card:#fff;--line:#e5e7eb;--text:#111827;--muted:#6b7280;--btn:#374151;--btnH:#111827}',
+    '*{box-sizing:border-box}body{font-family:system-ui,Segoe UI,Roboto;background:var(--bg);color:var(--text);margin:0;padding:40px}',
+    '.wrap{max-width:860px;margin:0 auto}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px;box-shadow:0 10px 35px rgba(0,0,0,.06)}',
+    'h1{margin:0 0 8px}p{color:var(--muted)}code{background:#eef2f7;padding:2px 6px;border-radius:8px}',
+    '.actions{display:flex;gap:10px;margin-top:16px}',
+    'a.btn{background:var(--btn);color:#fff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:700}',
+    'a.btn:hover{background:var(--btnH)}',
+    '</style>',
+    '<div class="wrap"><div class="card">',
+    '<h1>Short links</h1>',
+    '<p>Formato: <code>https://seu-dominio/&lt;slug&gt;</code> ou <code>/s/&lt;slug&gt;</code> | QR: <code>/qr/&lt;slug&gt;</code> | Painel: <code>/admin</code></p>',
+    '<div class="actions"><a class="btn" href="', gas, '" target="_blank" rel="noreferrer noopener">Abrir GAS</a></div>',
+    '</div></div>'
+  ].join('');
 }
 
 export default async function handler(req) {
   const url = new URL(req.url);
-  const path = url.pathname.replace(/^\/+/, "");
-  const GAS = (process.env.GAS_BASE || "").replace(/\/+$/, "");
+  const path = url.pathname.replace(/^\/+/, ''); // sem barra inicial
+  const GAS = (process.env.GAS_BASE || '').replace(/\/+$/, '');
 
-  if (!GAS) return new Response("GAS_BASE em falta", { status: 500 });
+  if (!GAS) return new Response('GAS_BASE em falta', { status: 500 });
 
   // Home / health
-  if (path === "" || path === "health") {
+  if (path === '' || path === 'health') {
     return new Response(landingHtml(GAS), {
       status: 200,
-      headers: { "content-type": "text/html; charset=utf-8" }
+      headers: { 'content-type': 'text/html; charset=utf-8' }
     });
   }
 
   // /admin → Basic Auth + iframe (não expõe a pass na barra)
-  if (path === "admin") {
+  if (path === 'admin') {
     if (!basicAuthOk(req)) {
-      return new Response("Autenticação requerida", {
+      return new Response('Autenticação requerida', {
         status: 401,
-        headers: { "WWW-Authenticate": "Basic realm=\"admin\"" }
+        headers: { 'WWW-Authenticate': 'Basic realm="admin"' }
       });
     }
-    const PASS = process.env.ADMIN_PASS || "";
-    if (!PASS) return new Response("ADMIN_PASS não configurado", { status: 403 });
+    const PASS = process.env.ADMIN_PASS || '';
+    if (!PASS) return new Response('ADMIN_PASS não configurado', { status: 403 });
 
     const html = [
-      "<!doctype html><meta charset=\"utf-8\"><title>Admin</title>",
-      "<style>html,body{height:100%;margin:0}body{font-family:system-ui,Segoe UI,Roboto;background:#f5f7fb}",
-      ".wrap{height:100%;display:flex;align-items:stretch;justify-content:center}iframe{flex:1;border:0;width:100%;height:100%}</style>",
-      "<div class=\"wrap\">",
-      "<iframe src=\"", GAS, "?admin=1&pass=", encodeURIComponent(PASS), "\" allow=\"clipboard-write *\"></iframe>",
-      "</div>"
-    ].join("");
+      '<!doctype html><meta charset="utf-8"><title>Admin</title>',
+      '<style>html,body{height:100%;margin:0}body{font-family:system-ui,Segoe UI,Roboto;background:#f5f7fb}',
+      '.wrap{height:100%;display:flex;align-items:stretch;justify-content:center}iframe{flex:1;border:0;width:100%;height:100%}</style>',
+      '<div class="wrap">',
+      '<iframe src="', GAS, '?admin=1&pass=', encodeURIComponent(PASS), '" allow="clipboard-write *"></iframe>',
+      '</div>'
+    ].join('');
 
-    return new Response(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
+    return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
   }
 
   // /qr/<slug> → proxy para o GAS (?qr=)
-  if (path.startsWith("qr/")) {
+  if (path.startsWith('qr/')) {
     const slug = decodeURIComponent(path.slice(3));
-    const target = GAS + "?qr=" + encodeURIComponent(slug);
+    const target = GAS + '?qr=' + encodeURIComponent(slug);
     const r = await fetch(target, { headers: forwardHeaders(req) });
     return passthrough(r);
   }
 
   // /s/<slug> ou /<slug> → resolve no GAS e faz 302 (sem "frame")
   if (path) {
-    const slug = path.startsWith("s/") ? decodeURIComponent(path.slice(2)) : decodeURIComponent(path);
-    if (slug && slug !== "favicon.ico") {
+    const slug = path.startsWith('s/') ? decodeURIComponent(path.slice(2)) : decodeURIComponent(path);
+    if (slug && slug !== 'favicon.ico') {
       // 1) pede ao GAS o URL final (texto simples) e já regista o clique
-      const lookupUrl = GAS + "?resolve=" + encodeURIComponent(slug);
+      const lookupUrl = GAS + '?resolve=' + encodeURIComponent(slug);
       const lookup = await fetch(lookupUrl, { headers: forwardHeaders(req) });
 
       if (lookup.ok) {
         const targetTxt = (await lookup.text()).trim();
-        if (targetTxt && targetTxt !== "NOT_FOUND") {
+        if (targetTxt && targetTxt !== 'NOT_FOUND') {
           return Response.redirect(targetTxt, 302); // 302 limpo
         }
       }
 
       // Fallback: entrega a página HTML do GAS (raramente necessário)
-      const fallbackUrl = GAS + "?s=" + encodeURIComponent(slug);
+      const fallbackUrl = GAS + '?s=' + encodeURIComponent(slug);
       const r = await fetch(fallbackUrl, { headers: forwardHeaders(req) });
       const resp = passthrough(r);
-      resp.headers.set("Cache-Control", "no-store");
+      resp.headers.set('Cache-Control', 'no-store');
       return resp;
     }
   }
 
-  return new Response("Não encontrado", { status: 404 });
+  return new Response('Não encontrado', { status: 404 });
 }
 
 function forwardHeaders(req) {
   return {
-    "User-Agent": req.headers.get("user-agent") || "",
-    "Referer": req.headers.get("referer") || "",
-    "X-Forwarded-For": req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "",
-    "Accept-Language": req.headers.get("accept-language") || ""
+    'User-Agent': req.headers.get('user-agent') || '',
+    'Referer': req.headers.get('referer') || '',
+    'X-Forwarded-For': req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '',
+    'Accept-Language': req.headers.get('accept-language') || ''
   };
 }
 
