@@ -49,13 +49,14 @@ a.btn:hover{background:var(--btnH)}
 <li>Painel: <code>/admin</code> (se ativado)</li>
 </ul>
 <div class="actions">
-  <a class="btn" href="${gas}?ping=1" target="_blank" rel="noreferrer noopener">Testar GAS</a>
+  <a class="btn" href="${gas}" target="_blank" rel="noreferrer noopener">Testar GAS</a>
 </div>
 </div></div>`;
 
+// Handler principal
 export default async function handler(req) {
   const url = new URL(req.url);
-  const path = url.pathname.replace(/^\/+/, '');
+  const path = url.pathname.replace(/^\/+/, ''); // sem barra inicial
   const GAS = (process.env.GAS_BASE || '').replace(/\/+$/, '');
 
   if (!GAS) return new Response('GAS_BASE em falta', { status: 500 });
@@ -68,7 +69,7 @@ export default async function handler(req) {
     });
   }
 
-  // /admin → Basic Auth + iframe (não mostra ?pass= na barra e rende sempre)
+  // /admin → Basic Auth + iframe (não mostra ?pass= na barra)
   if (path === 'admin') {
     if (!basicAuthOk(req)) {
       return new Response('Autenticação requerida', {
@@ -92,7 +93,7 @@ export default async function handler(req) {
     return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
   }
 
-  // /qr/<slug> → proxy para o GAS
+  // /qr/<slug> → proxy para o GAS (?qr=)
   if (path.startsWith('qr/')) {
     const slug = decodeURIComponent(path.slice(3));
     const target = `${GAS}?qr=${encodeURIComponent(slug)}`;
@@ -100,19 +101,22 @@ export default async function handler(req) {
     return passthrough(r);
   }
 
-  // /s/<slug> ou /<slug> → proxy para o GAS (registo + redirect)
-  const slug = path.startsWith('s/') ? decodeURIComponent(path.slice(2)) : decodeURIComponent(path);
-  if (slug) {
-    const target = `${GAS}/s/${encodeURIComponent(slug)}`;
-    const r = await fetch(target, { headers: forwardHeaders(req) });
-    const resp = passthrough(r);
-    resp.headers.set('Cache-Control', 'no-store'); // não cachear (A/B/GEO)
-    return resp;
+  // /s/<slug> ou /<slug> → proxy para o GAS usando ?s=<slug> (evita pathInfo no GAS)
+  if (path) {
+    const slug = path.startsWith('s/') ? decodeURIComponent(path.slice(2)) : decodeURIComponent(path);
+    if (slug && slug !== 'favicon.ico') {
+      const target = `${GAS}?s=${encodeURIComponent(slug)}`;
+      const r = await fetch(target, { headers: forwardHeaders(req) });
+      const resp = passthrough(r);
+      resp.headers.set('Cache-Control', 'no-store'); // não cachear (A/B/GEO)
+      return resp;
+    }
   }
 
   return new Response('Não encontrado', { status: 404 });
 }
 
+// Cabeçalhos úteis para o GAS (UA, referer, IP, idioma)
 function forwardHeaders(req) {
   return {
     'User-Agent': req.headers.get('user-agent') || '',
@@ -122,6 +126,7 @@ function forwardHeaders(req) {
   };
 }
 
+// Devolve a resposta do GAS tal como vem
 function passthrough(r) {
   return new Response(r.body, {
     status: r.status,
