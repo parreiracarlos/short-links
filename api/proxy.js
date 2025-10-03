@@ -1,5 +1,5 @@
 // Vercel Edge Function: proxy para o teu Google Apps Script
-// Variáveis de ambiente (Vercel → Project → Settings → Environment Variables):
+// Environment Variables (Vercel → Project → Settings → Environment Variables):
 // - GAS_BASE     (obrigatório) → URL do Apps Script até /exec
 // - ADMIN_PASS   (opcional)    → password que o GAS espera no painel
 // - ADMIN_USER   (opcional)    → user do Basic Auth do /admin
@@ -7,30 +7,28 @@
 
 export const config = { runtime: 'edge' };
 
-// --- Basic Auth (Edge Runtime) ---
+// Basic Auth (Edge runtime)
 function basicAuthOk(req) {
   const user = process.env.ADMIN_USER || '';
   const secret = process.env.ADMIN_SECRET || '';
-  // Se não definires ADMIN_USER/ADMIN_SECRET, não exige login
-  if (!user || !secret) return true;
+  if (!user || !secret) return true; // sem credenciais configuradas → sem proteção
 
   const h = req.headers.get('authorization') || '';
   if (!h.startsWith('Basic ')) return false;
 
   try {
-    // Credenciais vêm como Base64("user:pass")
     const decoded = atob(h.slice(6));
     const idx = decoded.indexOf(':');
     if (idx === -1) return false;
     const u = decoded.slice(0, idx);
     const p = decoded.slice(idx + 1);
     return u === user && p === secret;
-  } catch (_) {
+  } catch {
     return false;
   }
 }
 
-const landing = (gas) => `<!doctype html><meta charset="utf-8"><title>link/</title>
+const landing = (gas) => `<!doctype html><meta charset="utf-8"><title>Short links</title>
 <style>
 :root{--bg:#f5f7fb;--card:#fff;--line:#e5e7eb;--text:#111827;--muted:#6b7280;--btn:#374151;--btnH:#111827}
 *{box-sizing:border-box}body{font-family:system-ui,Segoe UI,Roboto;background:var(--bg);color:var(--text);margin:0;padding:40px}
@@ -41,19 +39,11 @@ a.btn{background:var(--btn);color:#fff;text-decoration:none;padding:10px 14px;bo
 a.btn:hover{background:var(--btnH)}
 </style>
 <div class="wrap"><div class="card">
-<h1>Short links</h1>
-<p>Este subdomínio encaminha para o teu Apps Script.</p>
-<ul style="color:var(--muted)">
-<li>Formato: <code>https://link.seu-dominio.com/&lt;slug&gt;</code> (ou <code>/s/&lt;slug&gt;</code>)</li>
-<li>QR: <code>/qr/&lt;slug&gt;</code></li>
-<li>Painel: <code>/admin</code> (se ativado)</li>
-</ul>
-<div class="actions">
-  <a class="btn" href="${gas}" target="_blank" rel="noreferrer noopener">Testar GAS</a>
-</div>
+  <h1>Short links</h1>
+  <p>Formato: <code>https://seu-dominio/&lt;slug&gt;</code> ou <code>/s/&lt;slug&gt;</code> | QR: <code>/qr/&lt;slug&gt;</code> | Painel: <code>/admin</code></p>
+  <div class="actions"><a class="btn" href="${gas}" target="_blank" rel="noreferrer noopener">Abrir GAS</a></div>
 </div></div>`;
 
-// Handler principal
 export default async function handler(req) {
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/+/, ''); // sem barra inicial
@@ -69,7 +59,7 @@ export default async function handler(req) {
     });
   }
 
-  // /admin → Basic Auth + iframe (não mostra ?pass= na barra)
+  // /admin → Basic Auth + iframe (não expõe a pass na barra)
   if (path === 'admin') {
     if (!basicAuthOk(req)) {
       return new Response('Autenticação requerida', {
@@ -81,12 +71,8 @@ export default async function handler(req) {
     if (!PASS) return new Response('ADMIN_PASS não configurado', { status: 403 });
 
     const html = `<!doctype html><meta charset="utf-8"><title>Admin</title>
-    <style>
-      html,body{height:100%;margin:0}
-      body{font-family:system-ui,Segoe UI,Roboto;background:#f5f7fb}
-      .wrap{height:100%;display:flex;align-items:stretch;justify-content:center;padding:0}
-      iframe{flex:1;border:0;width:100%;height:100%}
-    </style>
+    <style>html,body{height:100%;margin:0}body{font-family:system-ui,Segoe UI,Roboto;background:#f5f7fb}
+    .wrap{height:100%;display:flex;align-items:stretch;justify-content:center}iframe{flex:1;border:0;width:100%;height:100%}</style>
     <div class="wrap">
       <iframe src="${GAS}?admin=1&pass=${encodeURIComponent(PASS)}" allow="clipboard-write *"></iframe>
     </div>`;
@@ -101,36 +87,15 @@ export default async function handler(req) {
     return passthrough(r);
   }
 
-  // /s/<slug> ou /<slug> → proxy para o GAS usando ?s=<slug> (evita pathInfo no GAS)
+  // /s/<slug> ou /<slug> → resolve no GAS e faz 302 (sem "frame")
   if (path) {
     const slug = path.startsWith('s/') ? decodeURIComponent(path.slice(2)) : decodeURIComponent(path);
     if (slug && slug !== 'favicon.ico') {
-      const target = `${GAS}?s=${encodeURIComponent(slug)}`;
-      const r = await fetch(target, { headers: forwardHeaders(req) });
-      const resp = passthrough(r);
-      resp.headers.set('Cache-Control', 'no-store'); // não cachear (A/B/GEO)
-      return resp;
-    }
-  }
+      // 1) pede ao GAS o URL final (texto simples) e já regista o clique
+      const lookup = await fetch(`${GAS}?resolve=${encodeURIComponent(slug)}`, {
+        headers: forwardHeaders(req)
+      });
 
-  return new Response('Não encontrado', { status: 404 });
-}
-
-// Cabeçalhos úteis para o GAS (UA, referer, IP, idioma)
-function forwardHeaders(req) {
-  return {
-    'User-Agent': req.headers.get('user-agent') || '',
-    'Referer': req.headers.get('referer') || '',
-    'X-Forwarded-For': req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '',
-    'Accept-Language': req.headers.get('accept-language') || ''
-  };
-}
-
-// Devolve a resposta do GAS tal como vem
-function passthrough(r) {
-  return new Response(r.body, {
-    status: r.status,
-    statusText: r.statusText,
-    headers: r.headers
-  });
-}
+      if (lookup.ok) {
+        const target = (await lookup.text()).trim();
+        if (target && target !== 'NOT_FOU_
