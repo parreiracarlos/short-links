@@ -57,3 +57,46 @@ export default async function handler(req) {
   if (path === 'admin') {
     if (!basicAuthOk(req)) {
       return new Response('Autenticação requerida', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="admin"' } });
+    }
+    const PASS = process.env.ADMIN_PASS || '';
+    if (!PASS) return new Response('ADMIN_PASS não configurado', { status: 403 });
+    const html = '<!doctype html><meta charset="utf-8"><title>Admin</title>' +
+                 '<div style="height:100vh;margin:0;padding:0">' +
+                 '<iframe src="' + GAS + '?admin=1&pass=' + encodeURIComponent(PASS) + '"' +
+                 ' style="border:0;width:100%;height:100%" allow="clipboard-write *"></iframe>' +
+                 '</div>';
+    return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
+  }
+
+  // QR
+  if (path.startsWith('qr/')) {
+    const slug = decodeURIComponent(path.slice(3));
+    const r = await fetch(GAS + '?qr=' + encodeURIComponent(slug), { headers: forwardHeaders(req) });
+    return passthrough(r);
+  }
+
+  // /s/<slug> ou /<slug>
+  if (path) {
+    const slug = path.startsWith('s/') ? decodeURIComponent(path.slice(2)) : decodeURIComponent(path);
+    if (slug && slug !== 'favicon.ico') {
+      // 1) tentar via ?resolve=<slug> (texto puro)
+      let targetTxt = '';
+      try {
+        const lookup = await fetch(GAS + '?resolve=' + encodeURIComponent(slug), { headers: forwardHeaders(req) });
+        if (lookup.ok) targetTxt = (await lookup.text() || '').trim();
+      } catch {}
+
+      if (targetTxt && targetTxt !== 'NOT_FOUND' && isPlainUrl(targetTxt)) {
+        return Response.redirect(targetTxt, 302);
+      }
+
+      // 2) fallback: servir a página HTML do GAS (?s=<slug>) que faz o redirect
+      const r = await fetch(GAS + '?s=' + encodeURIComponent(slug), { headers: forwardHeaders(req) });
+      const resp = passthrough(r);
+      resp.headers.set('Cache-Control', 'no-store');
+      return resp;
+    }
+  }
+
+  return new Response('Não encontrado', { status: 404 });
+}
