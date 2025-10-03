@@ -53,7 +53,6 @@ a.btn:hover{background:var(--btnH)}
 </div>
 </div></div>`;
 
-// Handler principal
 export default async function handler(req) {
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/+/, '');
@@ -69,7 +68,7 @@ export default async function handler(req) {
     });
   }
 
-  // /admin → Basic Auth + proxy do HTML do painel (sem expor ?pass= na barra)
+  // /admin → Basic Auth + iframe (não mostra ?pass= na barra e rende sempre)
   if (path === 'admin') {
     if (!basicAuthOk(req)) {
       return new Response('Autenticação requerida', {
@@ -77,28 +76,20 @@ export default async function handler(req) {
         headers: { 'WWW-Authenticate': 'Basic realm="admin"' }
       });
     }
-
     const PASS = process.env.ADMIN_PASS || '';
     if (!PASS) return new Response('ADMIN_PASS não configurado', { status: 403 });
 
-    // Busca o HTML do painel no servidor e devolve-o ao cliente
-    const target = `${GAS}?admin=1&pass=${encodeURIComponent(PASS)}`;
-    const r = await fetch(target, {
-      headers: {
-        'User-Agent': req.headers.get('user-agent') || '',
-        'Accept-Language': req.headers.get('accept-language') || ''
-      }
-    });
-    const html = await r.text();
-
-    return new Response(html, {
-      status: 200,
-      headers: {
-        'content-type': r.headers.get('content-type') || 'text/html; charset=utf-8',
-        'x-content-type-options': 'nosniff',
-        'referrer-policy': 'no-referrer'
-      }
-    });
+    const html = `<!doctype html><meta charset="utf-8"><title>Admin</title>
+    <style>
+      html,body{height:100%;margin:0}
+      body{font-family:system-ui,Segoe UI,Roboto;background:#f5f7fb}
+      .wrap{height:100%;display:flex;align-items:stretch;justify-content:center;padding:0}
+      iframe{flex:1;border:0;width:100%;height:100%}
+    </style>
+    <div class="wrap">
+      <iframe src="${GAS}?admin=1&pass=${encodeURIComponent(PASS)}" allow="clipboard-write *"></iframe>
+    </div>`;
+    return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
   }
 
   // /qr/<slug> → proxy para o GAS
@@ -115,14 +106,13 @@ export default async function handler(req) {
     const target = `${GAS}/s/${encodeURIComponent(slug)}`;
     const r = await fetch(target, { headers: forwardHeaders(req) });
     const resp = passthrough(r);
-    resp.headers.set('Cache-Control', 'no-store'); // não cachear p/ não estragar A/B/GEO
+    resp.headers.set('Cache-Control', 'no-store'); // não cachear (A/B/GEO)
     return resp;
   }
 
   return new Response('Não encontrado', { status: 404 });
 }
 
-// Cabeçalhos úteis para o GAS (UA, referer, IP, idioma)
 function forwardHeaders(req) {
   return {
     'User-Agent': req.headers.get('user-agent') || '',
@@ -132,7 +122,6 @@ function forwardHeaders(req) {
   };
 }
 
-// Devolve a resposta do GAS tal como vem
 function passthrough(r) {
   return new Response(r.body, {
     status: r.status,
