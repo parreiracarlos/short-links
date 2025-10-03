@@ -1,6 +1,6 @@
 export const config = { runtime: 'edge' };
 
-// --- Basic Auth opcional para /admin ---
+// auth básica opcional para /admin
 function basicAuthOk(req) {
   const user = process.env.ADMIN_USER || '';
   const secret = process.env.ADMIN_SECRET || '';
@@ -17,10 +17,10 @@ function basicAuthOk(req) {
 
 function forwardHeaders(req) {
   return {
-    'User-Agent'      : req.headers.get('user-agent') || '',
-    'Referer'         : req.headers.get('referer') || '',
-    'X-Forwarded-For' : req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '',
-    'Accept-Language' : req.headers.get('accept-language') || ''
+    'User-Agent'       : req.headers.get('user-agent') || '',
+    'Referer'          : req.headers.get('referer') || '',
+    'X-Forwarded-For'  : req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '',
+    'Accept-Language'  : req.headers.get('accept-language') || ''
   };
 }
 function passthrough(r) {
@@ -42,16 +42,25 @@ function landingHtml(gas) {
          '<li>Painel: <code>/admin</code></li></ul></div>';
 }
 
+// junta UA / referer / ip / country como querystring para o GAS
+function traceParams(req) {
+  const ua = req.headers.get('user-agent') || '';
+  const ref = req.headers.get('referer') || '';
+  const ip  = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '';
+  const cc  = req.headers.get('x-vercel-ip-country') || req.headers.get('cf-ipcountry') || '';
+  const q = new URLSearchParams({
+    ua, ref, ip, cc
+  }).toString();
+  return '&' + q; // vamos sempre juntar a seguir a ?resolve=… ou ?s=…
+}
+
 export default async function handler(req) {
   const url = new URL(req.url);
-  const path = url.pathname.replace(/^\/+|\/+$/g, ''); // sem barras nas pontas
-  const first = (path.split('/')[0] || '').toLowerCase();
-  const reserved = new Set(['admin','qr','health','api','_next','favicon.ico','robots.txt']);
-
+  const path = url.pathname.replace(/^\/+/, '');
   const GAS  = (process.env.GAS_BASE || '').replace(/\/+$/, '');
   if (!GAS) return new Response('GAS_BASE em falta', { status: 500 });
 
-  // health/home
+  // health
   if (path === '' || path === 'health') {
     return new Response(landingHtml(GAS), { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
   }
@@ -71,33 +80,38 @@ export default async function handler(req) {
     return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
   }
 
-  // QR
+  // QR (aqui não é preciso traceParams)
   if (path.startsWith('qr/')) {
     const slug = decodeURIComponent(path.slice(3));
     const r = await fetch(GAS + '?qr=' + encodeURIComponent(slug), { headers: forwardHeaders(req) });
     return passthrough(r);
   }
 
-  // Slug curto: /s/<slug> ou /<slug> (ignorando paths reservados)
-  if (path && !reserved.has(first)) {
-    const isS = path.startsWith('s/');
-    const slug = isS ? decodeURIComponent(path.slice(2)) : decodeURIComponent(path);
-
+  // /s/<slug> ou /<slug>
+  if (path) {
+    const slug = path.startsWith('s/') ? decodeURIComponent(path.slice(2)) : decodeURIComponent(path);
     if (slug && slug !== 'favicon.ico') {
-      // 1) tenta via ?resolve=<slug> (texto puro)
+      const trace = traceParams(req);
+
+      // 1) tentar via ?resolve=<slug> (texto puro) + trace (ua/ref/ip/cc)
       let targetTxt = '';
       try {
-        const lookup = await fetch(GAS + '?resolve=' + encodeURIComponent(slug), { headers: forwardHeaders(req), cache: 'no-store' });
+        const lookup = await fetch(GAS + '?resolve=' + encodeURIComponent(slug) + trace, {
+          headers: forwardHeaders(req),
+          cache: 'no-store'
+        });
         if (lookup.ok) targetTxt = (await lookup.text() || '').trim();
       } catch {}
 
       if (targetTxt && targetTxt !== 'NOT_FOUND' && isPlainUrl(targetTxt)) {
-        // redirect 302 explícito
         return new Response(null, { status: 302, headers: { Location: targetTxt, 'Cache-Control': 'no-store' } });
       }
 
-      // 2) fallback: servir a página HTML do GAS (?s=<slug>) que faz o redirect
-      const r = await fetch(GAS + '?s=' + encodeURIComponent(slug), { headers: forwardHeaders(req), cache: 'no-store' });
+      // 2) fallback: servir a página HTML do GAS (?s=<slug>) + trace
+      const r = await fetch(GAS + '?s=' + encodeURIComponent(slug) + trace, {
+        headers: forwardHeaders(req),
+        cache: 'no-store'
+      });
       const resp = passthrough(r);
       resp.headers.set('Cache-Control', 'no-store');
       return resp;
