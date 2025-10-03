@@ -1,9 +1,5 @@
 // Vercel Edge Function: proxy para o teu Google Apps Script
-// Env vars necessárias (Project → Settings → Environment Variables):
-// - GAS_BASE     → URL do Apps Script até /exec (ex.: https://script.google.com/macros/s/…/exec)
-// - ADMIN_PASS   → mesma password que o GAS exige no painel
-// - ADMIN_USER   → user do Basic Auth do /admin
-// - ADMIN_SECRET → senha do Basic Auth do /admin
+// Env vars: GAS_BASE, ADMIN_PASS, ADMIN_USER, ADMIN_SECRET
 
 export const config = { runtime: 'edge' };
 
@@ -11,11 +7,9 @@ export const config = { runtime: 'edge' };
 function basicAuthOk(req) {
   const user = process.env.ADMIN_USER || '';
   const secret = process.env.ADMIN_SECRET || '';
-  if (!user || !secret) return true; // se não definires, não pede auth
-
+  if (!user || !secret) return true; // sem credenciais → sem login
   const h = req.headers.get('authorization') || '';
   if (!h.startsWith('Basic ')) return false;
-
   try {
     const decoded = atob(h.slice(6));
     const idx = decoded.indexOf(':');
@@ -23,43 +17,32 @@ function basicAuthOk(req) {
     const u = decoded.slice(0, idx);
     const p = decoded.slice(idx + 1);
     return u === user && p === secret;
-  } catch (_) {
-    return false;
-  }
+  } catch (_) { return false; }
 }
 
-// ---------- Landing muito simples ----------
+// ---------- Landing super simples (apenas texto/HTML básico) ----------
 function landingHtml(gas) {
-  return (
-    '<!doctype html><meta charset="utf-8"><title>Short links</title>' +
-    '<div style="font-family:system-ui,Segoe UI,Roboto;padding:24px">' +
-      '<h1 style="margin:0 0 8px">Short links</h1>' +
-      '<p>Health OK. <a href="' + gas + '" target="_blank" rel="noreferrer noopener">Abrir GAS</a></p>' +
-      '<ul>' +
-        '<li>Curto: <code>/&lt;slug&gt;</code> ou <code>/s/&lt;slug&gt;</code></li>' +
-        '<li>QR: <code>/qr/&lt;slug&gt;</code></li>' +
-        '<li>Painel: <code>/admin</code></li>' +
-      '</ul>' +
-    '</div>'
-  );
+  return '<!doctype html><meta charset="utf-8"><title>Short links</title>' +
+         '<div style="font-family:system-ui,Segoe UI,Roboto;padding:24px">' +
+         '<h1 style="margin:0 0 8px">Short links</h1>' +
+         '<p>Health OK. <a href="' + gas + '" target="_blank" rel="noreferrer noopener">Abrir GAS</a></p>' +
+         '<ul><li>Curto: <code>/&lt;slug&gt;</code> ou <code>/s/&lt;slug&gt;</code></li>' +
+         '<li>QR: <code>/qr/&lt;slug&gt;</code></li>' +
+         '<li>Painel: <code>/admin</code></li></ul></div>';
 }
 
 export default async function handler(req) {
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/+/, '');
-  const GAS = (process.env.GAS_BASE || '').replace(/\/+$/, '');
-
+  const GAS  = (process.env.GAS_BASE || '').replace(/\/+$/, '');
   if (!GAS) return new Response('GAS_BASE em falta', { status: 500 });
 
-  // Home / health
+  // Health / home
   if (path === '' || path === 'health') {
-    return new Response(landingHtml(GAS), {
-      status: 200,
-      headers: { 'content-type': 'text/html; charset=utf-8' }
-    });
+    return new Response(landingHtml(GAS), { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
   }
 
-  // /admin → Basic Auth + iframe (com pass do GAS no servidor)
+  // /admin → Basic Auth + iframe
   if (path === 'admin') {
     if (!basicAuthOk(req)) {
       return new Response('Autenticação requerida', {
@@ -70,13 +53,11 @@ export default async function handler(req) {
     const PASS = process.env.ADMIN_PASS || '';
     if (!PASS) return new Response('ADMIN_PASS não configurado', { status: 403 });
 
-    const html =
-      '<!doctype html><meta charset="utf-8"><title>Admin</title>' +
-      '<div style="height:100vh;margin:0;padding:0">' +
-      '<iframe src="' + GAS + '?admin=1&pass=' + encodeURIComponent(PASS) + '" ' +
-      'style="border:0;width:100%;height:100%" allow="clipboard-write *"></iframe>' +
-      '</div>';
-
+    const html = '<!doctype html><meta charset="utf-8"><title>Admin</title>' +
+                 '<div style="height:100vh;margin:0;padding:0">' +
+                 '<iframe src="' + GAS + '?admin=1&pass=' + encodeURIComponent(PASS) + '"' +
+                 ' style="border:0;width:100%;height:100%" allow="clipboard-write *"></iframe>' +
+                 '</div>';
     return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
   }
 
@@ -88,21 +69,18 @@ export default async function handler(req) {
     return passthrough(r);
   }
 
-  // /s/<slug> ou /<slug> → resolve no GAS e faz 302 (sem “frame”)
+  // /s/<slug> ou /<slug> → resolve no GAS e faz 302 (sem página intermédia)
   if (path) {
     const slug = path.startsWith('s/') ? decodeURIComponent(path.slice(2)) : decodeURIComponent(path);
     if (slug && slug !== 'favicon.ico') {
-      // 1) pede ao GAS o URL final (texto simples) e já regista o clique
       const lookupUrl = GAS + '?resolve=' + encodeURIComponent(slug);
       const lookup = await fetch(lookupUrl, { headers: forwardHeaders(req) });
-
       if (lookup.ok) {
         const targetTxt = (await lookup.text()).trim();
         if (targetTxt && targetTxt !== 'NOT_FOUND') {
           return Response.redirect(targetTxt, 302);
         }
       }
-
       // Fallback: devolve a página HTML do GAS (com meta refresh)
       const fallbackUrl = GAS + '?s=' + encodeURIComponent(slug);
       const r = await fetch(fallbackUrl, { headers: forwardHeaders(req) });
@@ -125,9 +103,5 @@ function forwardHeaders(req) {
 }
 
 function passthrough(r) {
-  return new Response(r.body, {
-    status: r.status,
-    statusText: r.statusText,
-    headers: r.headers
-  });
+  return new Response(r.body, { status: r.status, statusText: r.statusText, headers: r.headers });
 }
