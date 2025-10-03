@@ -1,7 +1,30 @@
 // Vercel Edge Function: proxy para o teu Google Apps Script
-// Env vars: GAS_BASE (obrigatório), ADMIN_PASS (opcional)
+// Env vars: GAS_BASE (obrigatório), ADMIN_PASS (opcional), ADMIN_USER + ADMIN_SECRET (opcionais p/ Basic Auth)
 
 export const config = { runtime: 'edge' };
+
+// --- Basic Auth (Edge Runtime) ---
+function basicAuthOk(req) {
+  const user = process.env.ADMIN_USER || '';
+  const secret = process.env.ADMIN_SECRET || '';
+  // Se não definires ADMIN_USER/ADMIN_SECRET, não exige login
+  if (!user || !secret) return true;
+
+  const h = req.headers.get('authorization') || '';
+  if (!h.startsWith('Basic ')) return false;
+
+  try {
+    // Credenciais vêm como Base64("user:pass")
+    const decoded = atob(h.slice(6));
+    const idx = decoded.indexOf(':');
+    if (idx === -1) return false;
+    const u = decoded.slice(0, idx);
+    const p = decoded.slice(idx + 1);
+    return u === user && p === secret;
+  } catch (_) {
+    return false;
+  }
+}
 
 const landing = (gas) => `<!doctype html><meta charset="utf-8"><title>link/</title>
 <style>
@@ -30,7 +53,6 @@ export default async function handler(req) {
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/+/, '');
   const GAS = (process.env.GAS_BASE || '').replace(/\/+$/, '');
-  const PASS = process.env.ADMIN_PASS || '';
 
   if (!GAS) return new Response('GAS_BASE em falta', { status: 500 });
 
@@ -42,8 +64,15 @@ export default async function handler(req) {
     });
   }
 
-  // /admin → atalho p/ painel (se houver password)
+  // /admin → exige Basic Auth (se definido) e redireciona com pass para o painel do GAS
   if (path === 'admin') {
+    if (!basicAuthOk(req)) {
+      return new Response('Autenticação requerida', {
+        status: 401,
+        headers: { 'WWW-Authenticate': 'Basic realm="admin"' }
+      });
+    }
+    const PASS = process.env.ADMIN_PASS || '';
     if (!PASS) return new Response('ADMIN_PASS não configurado', { status: 403 });
     return Response.redirect(`${GAS}?admin=1&pass=${encodeURIComponent(PASS)}`, 302);
   }
