@@ -1,5 +1,9 @@
 // Vercel Edge Function: proxy para o teu Google Apps Script
-// Env vars: GAS_BASE (obrigatório), ADMIN_PASS (opcional), ADMIN_USER + ADMIN_SECRET (opcionais p/ Basic Auth)
+// Env vars necessárias no projeto Vercel:
+// - GAS_BASE     (obrigatório) → URL do Apps Script até /exec
+// - ADMIN_PASS   (opcional)    → password que o GAS espera no painel
+// - ADMIN_USER   (opcional)    → user do Basic Auth do /admin
+// - ADMIN_SECRET (opcional)    → senha do Basic Auth do /admin
 
 export const config = { runtime: 'edge' };
 
@@ -64,7 +68,7 @@ export default async function handler(req) {
     });
   }
 
-  // /admin → exige Basic Auth (se definido) e redireciona com pass para o painel do GAS
+  // /admin → Basic Auth (se definido) + painel do GAS em iframe (sem ?pass= na barra)
   if (path === 'admin') {
     if (!basicAuthOk(req)) {
       return new Response('Autenticação requerida', {
@@ -74,10 +78,21 @@ export default async function handler(req) {
     }
     const PASS = process.env.ADMIN_PASS || '';
     if (!PASS) return new Response('ADMIN_PASS não configurado', { status: 403 });
-    return Response.redirect(`${GAS}?admin=1&pass=${encodeURIComponent(PASS)}`, 302);
+
+    const html = `<!doctype html><meta charset="utf-8"><title>Admin</title>
+    <style>
+      html,body{height:100%;margin:0}
+      body{font-family:system-ui,Segoe UI,Roboto;background:#f5f7fb}
+      .wrap{height:100%;display:flex;align-items:stretch;justify-content:center;padding:0}
+      iframe{flex:1;border:0;width:100%;height:100%}
+    </style>
+    <div class="wrap">
+      <iframe src="${GAS}?admin=1&pass=${encodeURIComponent(PASS)}" allow="clipboard-write *"></iframe>
+    </div>`;
+    return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
   }
 
-  // /qr/<slug> → passa para o GAS
+  // /qr/<slug> → proxy para o GAS
   if (path.startsWith('qr/')) {
     const slug = decodeURIComponent(path.slice(3));
     const target = `${GAS}?qr=${encodeURIComponent(slug)}`;
@@ -85,13 +100,13 @@ export default async function handler(req) {
     return passthrough(r);
   }
 
-  // /s/<slug> ou /<slug>
+  // /s/<slug> ou /<slug> → proxy para o GAS (registo + redirect)
   const slug = path.startsWith('s/') ? decodeURIComponent(path.slice(2)) : decodeURIComponent(path);
   if (slug) {
     const target = `${GAS}/s/${encodeURIComponent(slug)}`;
     const r = await fetch(target, { headers: forwardHeaders(req) });
     const resp = passthrough(r);
-    resp.headers.set('Cache-Control', 'no-store'); // não cachear p/ A/B/GEO
+    resp.headers.set('Cache-Control', 'no-store'); // não cachear p/ não estragar A/B/GEO
     return resp;
   }
 
