@@ -1,10 +1,17 @@
 export const config = { runtime: 'edge' };
 
-/* ========= Helpers ========= */
+/* =========================
+   Config simples
+   ========================= */
+const HOME_URL = 'https://carlosparreira.pt'; // destino do botão "Ir à home"
 
-// Auth básica opcional para /admin
+/* =========================
+   Helpers
+   ========================= */
+
+// auth básica opcional para /admin
 function basicAuthOk(req) {
-  const user   = process.env.ADMIN_USER   || '';
+  const user = process.env.ADMIN_USER || '';
   const secret = process.env.ADMIN_SECRET || '';
   if (!user || !secret) return true;
   const h = req.headers.get('authorization') || '';
@@ -29,70 +36,84 @@ function forwardHeaders(req) {
 }
 
 function passthrough(r) {
-  return new Response(r.body, { status: r.status, statusText: r.statusText, headers: r.headers });
+  return new Response(r.body, {
+    status: r.status,
+    statusText: r.statusText,
+    headers: r.headers
+  });
 }
 
 function isPlainUrl(s) {
   const t = (s || '').trim();
   if (!/^https?:\/\//i.test(t)) return false;
-  if (/[<>\s]/.test(t)) return false;
+  if (/[<>\s]/.test(t))        return false;
   return true;
 }
 
 function landingHtml(gas) {
-  return (
-    '<!doctype html><meta charset="utf-8"><title>Short links</title>' +
-    '<div style="font-family:system-ui,Segoe UI,Roboto;padding:24px">' +
-    '<h1 style="margin:0 0 8px">Short links</h1>' +
-    '<p>Health OK. <a href="' + gas + '" target="_blank" rel="noreferrer noopener">Abrir GAS</a></p>' +
-    '<ul><li>Curto: <code>/&lt;slug&gt;</code> ou <code>/s/&lt;slug&gt;</code></li>' +
-    '<li>QR: <code>/qr/&lt;slug&gt;</code></li>' +
-    '<li>Painel: <code>/admin</code></li></ul></div>'
-  );
+  return '<!doctype html><meta charset="utf-8"><title>Short links</title>' +
+         '<div style="font-family:system-ui,Segoe UI,Roboto;padding:24px">' +
+         '<h1 style="margin:0 0 8px">Short links</h1>' +
+         '<p>Health OK. <a href="' + gas + '" target="_blank" rel="noreferrer noopener">Abrir GAS</a></p>' +
+         '<ul><li>Curto: <code>/&lt;slug&gt;</code> ou <code>/s/&lt;slug&gt;</code></li>' +
+         '<li>QR: <code>/qr/&lt;slug&gt;</code></li>' +
+         '<li>Painel: <code>/admin</code></li></ul></div>';
 }
 
-// Junta UA / referer / ip / country como querystring para o GAS
+// junta UA / referer / ip / country como querystring para o GAS
 function traceParams(req) {
   const ua = req.headers.get('user-agent') || '';
   const ref = req.headers.get('referer') || '';
   const ip  = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '';
   const cc  = req.headers.get('x-vercel-ip-country') || req.headers.get('cf-ipcountry') || '';
   const q = new URLSearchParams({ ua, ref, ip, cc }).toString();
-  return '&' + q; // vamos sempre juntar a seguir a ?resolve=… ou ?s=…
+  return '&' + q; // vai a seguir a ?resolve=… ou ?s=…
 }
 
-// 404 bonitinho (sem iframe)
+// página 404 bonita — apenas 1 botão “Ir à home”
 function notFoundHtml(slug) {
-  return (
-    '<!doctype html><meta charset="utf-8"><title>Link não encontrado</title>' +
-    '<div style="font-family:system-ui,Segoe UI,Roboto;max-width:720px;margin:12vh auto;padding:24px;' +
-    'border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 10px 35px rgba(0,0,0,.06)">' +
-    '<h2 style="margin:0 0 6px">Link não encontrado</h2>' +
-    '<p style="color:#6b7280;margin:0 0 12px">O slug <code>' + (slug || '') + '</code> não existe ou está inativo.</p>' +
-    '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
-    '<a href="/" style="background:#374151;color:#fff;text-decoration:none;padding:10px 14px;border-radius:10px">Ir à home</a>' +
-    '<a href="/admin" style="background:#6b7280;color:#fff;text-decoration:none;padding:10px 14px;border-radius:10px">Abrir painel</a>' +
-    '</div></div>'
+  const esc = String(slug || '').replace(/[&<>"']/g, s =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s])
   );
+  return '<!doctype html><meta charset="utf-8"><title>Link não encontrado</title>' +
+    '<style>' +
+    '  :root{--bg:#f7f8fb;--card:#fff;--line:#e5e7eb;--text:#111827;--muted:#6b7280;--btn:#374151;--btnH:#111827;}' +
+    '  *{box-sizing:border-box} body{margin:0;background:var(--bg);font-family:system-ui,Segoe UI,Roboto;color:var(--text);}' +
+    '  .wrap{max-width:960px;margin:8vh auto;padding:20px}' +
+    '  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;box-shadow:0 10px 35px rgba(0,0,0,.06)}' +
+    '  h2{margin:0 0 8px} p{color:var(--muted);margin:0 0 12px}' +
+    '  .actions{display:flex;gap:10px;margin-top:8px}' +
+    '  a.btn{background:var(--btn);color:#fff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:700;display:inline-block}' +
+    '  a.btn:hover{background:var(--btnH)}' +
+    '</style>' +
+    '<div class="wrap"><div class="card">' +
+    '<h2>Link não encontrado</h2>' +
+    '<p>O slug <code>' + esc + '</code> não existe ou está inativo.</p>' +
+    '<div class="actions">' +
+    '<a class="btn" href="' + HOME_URL + '">Ir à home</a>' +
+    '</div>' +
+    '</div></div>';
 }
 
-/* ========= Handler ========= */
+/* =========================
+   Handler
+   ========================= */
 
 export default async function handler(req) {
-  const url  = new URL(req.url);
+  const url = new URL(req.url);
   const path = url.pathname.replace(/^\/+/, '');
   const GAS  = (process.env.GAS_BASE || '').replace(/\/+$/, '');
   if (!GAS) return new Response('GAS_BASE em falta', { status: 500 });
 
-  // Health
+  // health
   if (path === '' || path === 'health') {
     return new Response(landingHtml(GAS), {
       status: 200,
-      headers: { 'content-type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+      headers: { 'content-type': 'text/html; charset=utf-8' }
     });
   }
 
-  // Admin (painel em iframe) – Basic Auth opcional
+  // admin (painel em iframe) – protegido com Basic Auth se definido
   if (path === 'admin') {
     if (!basicAuthOk(req)) {
       return new Response('Autenticação requerida', {
@@ -102,24 +123,23 @@ export default async function handler(req) {
     }
     const PASS = process.env.ADMIN_PASS || '';
     if (!PASS) return new Response('ADMIN_PASS não configurado', { status: 403 });
-
-    const html =
-      '<!doctype html><meta charset="utf-8"><title>Admin</title>' +
+    const html = '<!doctype html><meta charset="utf-8"><title>Admin</title>' +
       '<div style="height:100vh;margin:0;padding:0">' +
       '<iframe src="' + GAS + '?admin=1&pass=' + encodeURIComponent(PASS) + '"' +
       ' style="border:0;width:100%;height:100%" allow="clipboard-write *"></iframe>' +
       '</div>';
-
     return new Response(html, {
       status: 200,
-      headers: { 'content-type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+      headers: { 'content-type': 'text/html; charset=utf-8' }
     });
   }
 
-  // QR (sem need de traceParams)
+  // QR (aqui não é preciso traceParams)
   if (path.startsWith('qr/')) {
     const slug = decodeURIComponent(path.slice(3));
-    const r = await fetch(GAS + '?qr=' + encodeURIComponent(slug), { headers: forwardHeaders(req) });
+    const r = await fetch(GAS + '?qr=' + encodeURIComponent(slug), {
+      headers: forwardHeaders(req)
+    });
     return passthrough(r);
   }
 
@@ -132,38 +152,46 @@ export default async function handler(req) {
     if (slug && slug !== 'favicon.ico') {
       const trace = traceParams(req);
 
-      // 1) Tentar via ?resolve=<slug> (texto puro) + trace
+      // 1) pedir ao GAS o destino em texto (resolve)
       let targetTxt = '';
       try {
-        const lookup = await fetch(GAS + '?resolve=' + encodeURIComponent(slug) + trace, {
-          headers: forwardHeaders(req),
-          cache: 'no-store'
-        });
+        const lookup = await fetch(
+          GAS + '?resolve=' + encodeURIComponent(slug) + trace,
+          { headers: forwardHeaders(req), cache: 'no-store' }
+        );
         if (lookup.ok) targetTxt = (await lookup.text() || '').trim();
-      } catch {
-        // silencia e cai no 404 abaixo
+      } catch { /* ignore */ }
+
+      // se não existe, mostra 404 com 1 botão "Ir à home"
+      if (!targetTxt || targetTxt === 'NOT_FOUND') {
+        return new Response(notFoundHtml(slug), {
+          status: 404,
+          headers: { 'content-type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+        });
       }
 
-      // Encontrado → 302 sem cache
-      if (targetTxt && targetTxt !== 'NOT_FOUND' && isPlainUrl(targetTxt)) {
+      // se existir e for URL válido → redirect
+      if (isPlainUrl(targetTxt)) {
         return new Response(null, {
           status: 302,
-          headers: {
-            Location: targetTxt,
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-            Pragma: 'no-cache',
-            Expires: '0'
-          }
+          headers: { 'Location': targetTxt, 'Cache-Control': 'no-store' }
         });
       }
 
-      // NÃO encontrado → 404 amigável (evita iframe do GAS)
-      return new Response(notFoundHtml(slug), {
-        status: 404,
-        headers: { 'content-type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+      // fallback: servir a página HTML do GAS (?s=<slug>) — raríssimo
+      const r = await fetch(GAS + '?s=' + encodeURIComponent(slug) + trace, {
+        headers: forwardHeaders(req),
+        cache: 'no-store'
       });
+      const resp = passthrough(r);
+      resp.headers.set('Cache-Control', 'no-store');
+      return resp;
     }
   }
 
-  return new Response('Não encontrado', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+  // 404 “direto” (rota desconhecida)
+  return new Response(notFoundHtml(''), {
+    status: 404,
+    headers: { 'content-type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+  });
 }
