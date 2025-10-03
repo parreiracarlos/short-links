@@ -1,6 +1,6 @@
 export const config = { runtime: 'edge' };
 
-// auth básica opcional para /admin
+// --- Basic Auth opcional para /admin ---
 function basicAuthOk(req) {
   const user = process.env.ADMIN_USER || '';
   const secret = process.env.ADMIN_SECRET || '';
@@ -17,10 +17,10 @@ function basicAuthOk(req) {
 
 function forwardHeaders(req) {
   return {
-    'User-Agent'       : req.headers.get('user-agent') || '',
-    'Referer'          : req.headers.get('referer') || '',
-    'X-Forwarded-For'  : req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '',
-    'Accept-Language'  : req.headers.get('accept-language') || ''
+    'User-Agent'      : req.headers.get('user-agent') || '',
+    'Referer'         : req.headers.get('referer') || '',
+    'X-Forwarded-For' : req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '',
+    'Accept-Language' : req.headers.get('accept-language') || ''
   };
 }
 function passthrough(r) {
@@ -44,11 +44,14 @@ function landingHtml(gas) {
 
 export default async function handler(req) {
   const url = new URL(req.url);
-  const path = url.pathname.replace(/^\/+/, '');
+  const path = url.pathname.replace(/^\/+|\/+$/g, ''); // sem barras nas pontas
+  const first = (path.split('/')[0] || '').toLowerCase();
+  const reserved = new Set(['admin','qr','health','api','_next','favicon.ico','robots.txt']);
+
   const GAS  = (process.env.GAS_BASE || '').replace(/\/+$/, '');
   if (!GAS) return new Response('GAS_BASE em falta', { status: 500 });
 
-  // health
+  // health/home
   if (path === '' || path === 'health') {
     return new Response(landingHtml(GAS), { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
   }
@@ -75,23 +78,26 @@ export default async function handler(req) {
     return passthrough(r);
   }
 
-  // /s/<slug> ou /<slug>
-  if (path) {
-    const slug = path.startsWith('s/') ? decodeURIComponent(path.slice(2)) : decodeURIComponent(path);
+  // Slug curto: /s/<slug> ou /<slug> (ignorando paths reservados)
+  if (path && !reserved.has(first)) {
+    const isS = path.startsWith('s/');
+    const slug = isS ? decodeURIComponent(path.slice(2)) : decodeURIComponent(path);
+
     if (slug && slug !== 'favicon.ico') {
-      // 1) tentar via ?resolve=<slug> (texto puro)
+      // 1) tenta via ?resolve=<slug> (texto puro)
       let targetTxt = '';
       try {
-        const lookup = await fetch(GAS + '?resolve=' + encodeURIComponent(slug), { headers: forwardHeaders(req) });
+        const lookup = await fetch(GAS + '?resolve=' + encodeURIComponent(slug), { headers: forwardHeaders(req), cache: 'no-store' });
         if (lookup.ok) targetTxt = (await lookup.text() || '').trim();
       } catch {}
 
       if (targetTxt && targetTxt !== 'NOT_FOUND' && isPlainUrl(targetTxt)) {
-        return Response.redirect(targetTxt, 302);
+        // redirect 302 explícito
+        return new Response(null, { status: 302, headers: { Location: targetTxt, 'Cache-Control': 'no-store' } });
       }
 
       // 2) fallback: servir a página HTML do GAS (?s=<slug>) que faz o redirect
-      const r = await fetch(GAS + '?s=' + encodeURIComponent(slug), { headers: forwardHeaders(req) });
+      const r = await fetch(GAS + '?s=' + encodeURIComponent(slug), { headers: forwardHeaders(req), cache: 'no-store' });
       const resp = passthrough(r);
       resp.headers.set('Cache-Control', 'no-store');
       return resp;
